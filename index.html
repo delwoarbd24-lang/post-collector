@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Post Collector</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--text:#1c2430;--mute:#6b7685;--line:#e3e8f0;--pri:#3b6cf6;--priText:#fff;--danger:#e5484d;--ok:#1f9d63;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141b;--card:#1a212b;--text:#e8edf4;--mute:#97a3b3;--line:#2a3340;--pri:#5b8cff;--priText:#0b1020;--danger:#ff6b70;--ok:#3ccf8e}}
+:root[data-theme="dark"]{--bg:#10141b;--card:#1a212b;--text:#e8edf4;--mute:#97a3b3;--line:#2a3340;--pri:#5b8cff;--priText:#0b1020;--danger:#ff6b70;--ok:#3ccf8e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,"Noto Sans Bengali","Hind Siliguri",system-ui,sans-serif;line-height:1.6}
+.wrap{max-width:640px;margin:0 auto;padding:16px 14px 90px}
+h1{font-size:22px;margin:6px 0 2px}
+.sub{color:var(--mute);font-size:14px;margin:0 0 14px}
+button{font:inherit;border:0;border-radius:12px;padding:12px 14px;cursor:pointer;min-height:44px}
+.main{width:100%;background:var(--pri);color:var(--priText);font-weight:700;font-size:17px;padding:15px}
+.main:active{opacity:.85}
+.box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:12px}
+textarea,input[type=search]{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;outline:none}
+textarea{min-height:90px;resize:vertical}
+textarea:focus,input:focus{border-color:var(--pri)}
+.row{display:flex;gap:8px;margin-top:8px}
+.row button{flex:1}
+.sec{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+.pri{background:var(--pri);color:var(--priText);font-weight:600}
+.del{color:var(--danger)}
+.bar{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;color:var(--mute);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.txt{white-space:pre-wrap;word-break:break-word;font-size:16px;max-height:11.5em;overflow:hidden;position:relative}
+.txt.open{max-height:none}
+.more{background:none;color:var(--pri);padding:4px 0;min-height:32px;font-size:14px}
+.meta{color:var(--mute);font-size:12px;margin-top:4px}
+.empty{text-align:center;color:var(--mute);padding:36px 10px}
+mark{background:#ffe27a;color:#222;border-radius:3px}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:#222;color:#fff;padding:10px 16px;border-radius:999px;font-size:15px;opacity:0;pointer-events:none;transition:.25s;max-width:90%;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📋 Post Collector</h1>
+  <p class="sub">Facebook পোস্টের লেখা কপি করে এখানে জমা রাখুন</p>
+
+  <button class="main" id="clipBtn">📥 Clipboard থেকে যোগ করুন</button>
+
+  <div class="box">
+    <textarea id="manual" placeholder="অথবা এখানে লেখা পেস্ট করুন (বা নিজে লিখুন)…"></textarea>
+    <div class="row"><button class="pri" id="manualBtn">➕ যোগ করুন</button></div>
+  </div>
+
+  <div class="bar"><span>সংরক্ষিত পোস্ট</span><span id="count"></span></div>
+  <input type="search" id="q" placeholder="🔍 পোস্ট খুঁজুন…">
+  <div id="list" style="margin-top:12px"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+(function(){
+  var KEY='postCollector.v1', posts=[], editing=null, openIds={};
+  function load(){try{var r=localStorage.getItem(KEY);posts=r?JSON.parse(r):[]}catch(e){posts=[]}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(posts))}catch(e){toast('সংরক্ষণ করা যায়নি')}}
+  var $=function(id){return document.getElementById(id)};
+  var tt;function toast(m){var t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('show')},2000)}
+  function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function bn(n){return String(n).replace(/\d/g,function(d){return '০১২৩৪৫৬৭৮৯'[d]})}
+  function fmt(ts){try{return new Date(ts).toLocaleString('bn-BD',{dateStyle:'medium',timeStyle:'short'})}catch(e){return ''}}
+
+  function add(text){
+    text=(text||'').trim();
+    if(!text){toast('কোনো লেখা পাওয়া যায়নি');return false}
+    if(posts.length&&posts[0].text===text){toast('এই লেখাটি আগেই সংরক্ষিত');return false}
+    posts.unshift({id:Date.now()+''+Math.floor(Math.random()*1000),text:text,ts:Date.now()});
+    save();render();toast('✅ সংরক্ষিত হয়েছে');return true;
+  }
+
+  $('clipBtn').onclick=function(){
+    if(!navigator.clipboard||!navigator.clipboard.readText){
+      toast('এই ব্রাউজারে সরাসরি পড়া যাচ্ছে না — নিচের বক্সে পেস্ট করুন');$('manual').focus();return;
+    }
+    navigator.clipboard.readText().then(function(t){add(t)}).catch(function(){
+      toast('অনুমতি পাওয়া যায়নি — নিচের বক্সে পেস্ট করুন');$('manual').focus();
+    });
+  };
+  $('manualBtn').onclick=function(){if(add($('manual').value))$('manual').value=''};
+  $('q').oninput=render;
+
+  function copyText(t){
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      return navigator.clipboard.writeText(t).then(function(){toast('📋 কপি হয়েছে')}).catch(function(){fallback(t)});
+    }
+    fallback(t);
+  }
+  function fallback(t){
+    var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';
+    document.body.appendChild(a);a.focus();a.select();a.setSelectionRange(0,999999);
+    var ok=false;try{ok=document.execCommand('copy')}catch(e){}
+    document.body.removeChild(a);toast(ok?'📋 কপি হয়েছে':'কপি করা যায়নি');
+  }
+
+  function render(){
+    var q=$('q').value.trim().toLowerCase();
+    var items=posts.filter(function(p){return !q||p.text.toLowerCase().indexOf(q)>-1});
+    $('count').textContent=bn(items.length)+'টি';
+    var l=$('list');
+    if(!items.length){l.innerHTML='<div class="empty">'+(posts.length?'কোনো মিল পাওয়া যায়নি':'এখনো কোনো পোস্ট নেই।<br>Facebook থেকে লেখা কপি করে উপরের বোতাম চাপুন।')+'</div>';return}
+    l.innerHTML=items.map(function(p){
+      var long=p.text.length>260||p.text.split('\n').length>8;
+      var body;
+      if(editing===p.id){
+        body='<textarea id="ed" style="min-height:140px">'+esc(p.text)+'</textarea>'+
+        '<div class="row"><button class="pri" data-a="ok" data-id="'+p.id+'">💾 সংরক্ষণ</button><button class="sec" data-a="no" data-id="'+p.id+'">বাতিল</button></div>';
+      }else{
+        var t=esc(p.text);
+        if(q){var re=new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/&/g,'&amp;')+')','gi');t=t.replace(re,'<mark>$1</mark>')}
+        body='<div class="txt'+(openIds[p.id]?' open':'')+'">'+t+'</div>'+
+        (long?'<button class="more" data-a="more" data-id="'+p.id+'">'+(openIds[p.id]?'কম দেখুন ▲':'আরও দেখুন ▼')+'</button>':'')+
+        '<div class="meta">'+fmt(p.ts)+'</div>'+
+        '<div class="row"><button class="pri" data-a="copy" data-id="'+p.id+'">📋 কপি</button><button class="sec" data-a="edit" data-id="'+p.id+'">✏️ এডিট</button><button class="sec del" data-a="del" data-id="'+p.id+'">🗑 ডিলিট</button></div>';
+      }
+      return '<div class="card">'+body+'</div>';
+    }).join('');
+  }
+
+  $('list').onclick=function(e){
+    var b=e.target.closest('button[data-a]');if(!b)return;
+    var id=b.getAttribute('data-id'),a=b.getAttribute('data-a');
+    var p=posts.filter(function(x){return x.id===id})[0];if(!p)return;
+    if(a==='copy')copyText(p.text);
+    else if(a==='edit'){editing=id;render();var t=$('ed');if(t)t.focus()}
+    else if(a==='no'){editing=null;render()}
+    else if(a==='ok'){var v=$('ed').value.trim();if(!v){toast('লেখা খালি রাখা যাবে না');return}p.text=v;editing=null;save();render();toast('✅ আপডেট হয়েছে')}
+    else if(a==='del'){if(confirm('এই পোস্টটি ডিলিট করবেন?')){posts=posts.filter(function(x){return x.id!==id});save();render();toast('🗑 ডিলিট হয়েছে')}}
+    else if(a==='more'){openIds[id]=!openIds[id];render()}
+  };
+
+  load();render();
+})();
+</script>
+</body>
+</html>
